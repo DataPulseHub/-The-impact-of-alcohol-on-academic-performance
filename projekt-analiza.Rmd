@@ -1,0 +1,998 @@
+---
+title: "Wpływ alkoholu na wyniki w nauce"
+author: "Bartłomiej Zub, Natalia Wilczek"
+output: 
+  html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = F,
+	message = FALSE,
+	warning = FALSE
+)
+library(tidyverse)
+library(ggplot2)
+library(kableExtra)
+library(knitr)
+library(dplyr)
+library(lubridate)
+library(gridExtra)
+library(alluvial)
+library(waffle)
+library(extrafont)
+library(plyr)
+library(caret)
+library(stats)
+library(dplyr)
+library(kableExtra)
+library(PerformanceAnalytics)
+library(RColorBrewer)
+library(rattle)
+library(lmtest)
+```
+
+```{r}
+include_graphics("c://Users//natal//Desktop//projekt analiza//obraz.jpg")
+```
+
+# ***1. Cel badania***
+
+Analiza statystyczna poniższych danych jest próbą znalezienia **czynników**, które najbardziej wpływają na to, iż studenci sięgają po alkohol oraz zbadanie **wpływu** tego działania na wyniki nauce.
+
+# ***2. Opis zbioru danych***
+
+Te dane dotyczą osiągnięć uczniów w szkołach średnich dwóch portugalskich szkół. Atrybuty danych obejmują oceny uczniów, cechy demograficzne, społeczne i związane ze szkołą) i zostały zebrane za pomocą szkolnych raportów i kwestionariuszy. Dostarczono dwa zestawy danych dotyczące wyników w dwóch odrębnych przedmiotach: matematyka (math) i język portugalski (portugease).
+
+### ***2.1 Opis zmiennych***
+
+```{r echo=FALSE}
+
+nazwa <- c('school','szkoła ucznia (GP - Gabriel Pereira lub MS - Mousinho da Silveira)','sex','płeć studenta (M-mężczyzna, F-kobieta','age','wiek(15-22)','address','adres( U-miejski, R-wiejski)','Pstatus','status rodziców(T- mieszkanie razem, A-osobno)','studytime','czas nauki(1-<2h,2-2 do 5h,3-5-10h,4->10h)','schoolsup','dodatkowe wsparcie edukacyjne','paid','dodatkowe płatne zajecia','activities','zajecia pozalekcyjne','famrel','relacje rodzinne','Dalc','spozycie alkoholu w ciągu dnia','Walc','spożycie alkoholu w weekend','health','aktualny stan zdrowia','absences','nieobecności','ocena1',"ocena w 1 półroczu",'ocena2',"ocena w 2 półroczu",'ocena3','ocena semestralna')
+
+
+
+tabelka <- matrix(nazwa,ncol = 2,byrow = TRUE) %>%
+  as_tibble()
+ 
+names(tabelka) <- c('nazwa zmiennej','opis')
+
+
+kbl(tabelka) %>%
+  kable_paper(full_width=F,font_size=17) %>%
+  column_spec(1,bold = T,border_right = T) %>%
+  column_spec(2,width = '30em',background = '#dbd4bf')
+
+
+
+```
+
+# ***3. Wczytanie zbioru danych***
+
+```{r}
+math <- read.csv('Maths.csv')
+portugal <- read.csv('Portuguese.csv')
+
+
+df <- rbind(math,portugal)
+
+df %>%
+  head(15) %>%
+  kbl() %>%
+  kable_paper(full_width=T, font_size = 17)
+ # footnote(general = 'W powyższej tabeli zostało przedstawione tylko 15 pierwszych wierszy')
+```
+
+```{r, echo=TRUE}
+nzv <- nearZeroVar(df, saveMetrics= TRUE)
+nzv %>% filter(nzv == TRUE) %>% nrow()
+
+```
+
+Nie ma predyktorów (zmiennych objaśniających) o wariancji bliskiej zeru.
+
+### 3.1 Sprawdzenie braków danych
+
+```{r, echo=TRUE}
+sum(is.na(df)) 
+
+```
+
+Nie ma braków danych.
+
+### 3.2 Zidentyfikowanie i usunięcie zduplikowanych zmiennych
+
+```{r}
+
+df<-df %>% distinct(school,sex,age,address,famsize,Pstatus,
+                Medu,Fedu,Mjob,Fjob,reason,
+                guardian,traveltime,studytime,failures,
+                schoolsup, famsup,paid,activities,nursery,higher,internet,
+                romantic,famrel,freetime,goout,Dalc,Walc,health,absences, G1, G2, G3, .keep_all = TRUE)
+
+
+
+
+dim(df)
+
+```
+
+# ***4. Podsawowe wykresy zależności***
+
+### ***4.1 Szkoła a płeć***
+
+```{r}
+
+df$Dalc <- as.factor(df$Dalc)
+df$Dalc <- mapvalues(df$Dalc,from = 1:5,to = c('Bardzo niski','Niski','Średni','Wysoki','Bardzo wysoki'))
+
+df$Walc <- as.factor(df$Dalc)
+
+
+
+dni_robocze <- ggplot(df,aes(x=Dalc,y=school,color=sex))+
+  geom_jitter(alpha = 0.7)+
+  scale_colour_manual(values = c('#ff7f50','#468499'))+
+  theme_bw()+
+  xlab("Spożycie alkoholu w dni robocze")+
+  ylab('Szkoła')+
+  ggtitle('Spożycie alkoholu w zależności od zmiennej szkoła i płeć w dni robocze')
+dni_robocze
+```
+
+```{r}
+weekend <- ggplot(df,aes(x=Walc,y=school,color=sex))+
+  geom_jitter(alpha = 0.7)+
+  scale_colour_manual(values = c('#2c5494','#e02d66'))+
+  theme_bw()+
+  xlab("Spożycie alkoholu w weekend")+
+  ylab('Szkoła')+
+  ggtitle('Spożycie alkoholu w zależności od zmiennej szkoła i płeć w weekend')
+weekend
+
+```
+
+Z obu wykresów wynika, iż szkoła GP wykazuje silniejszą tendencje uczniów do spożywania alkoholu. Można zauważyć, iż mężczyżni mają odrobinę większe skłonności do spożywania alkoholu niż kobiety.
+
+## 4.2 Czy uczniowie piją więcej w dni robocze?
+
+#### ***Spożycie alkoholu w dni robocze, a oceny***
+
+```{r}
+
+kolorki1 <- c("#ebbccb","#eb98b3","#e6759a","#e6497d","#cc0a4a")
+
+oceny1 <- ggplot(df,aes(x=Dalc,y=G1,fill = Dalc))+
+  geom_boxplot()+
+  theme_dark()+
+  theme(legend.position = "none")+
+  scale_fill_manual(values = kolorki1)+
+  xlab('Spożycie alkoholu')+
+  ylab('Oceny')+
+  ggtitle('Pierwsze półrocze')
+
+
+
+```
+
+```{r}
+
+kolorki2 <- c("#c7e0bf","#a9db9a","#93de7c","#6edb4d","#3ad10d")
+
+oceny2 <- ggplot(df,aes(x=Dalc,y=G2,fill = Dalc))+
+  geom_boxplot()+
+  theme_dark()+
+  theme(legend.position = "none")+
+  scale_fill_manual(values = kolorki2)+
+  xlab('Spożycie alkoholu')+
+  ylab('Oceny')+
+  ggtitle('Drugie półrocze')
+  
+
+
+
+```
+
+```{r}
+
+kolorki3 <- c("#bcd5e8","#90bde0","#5ba5de","#3593db","#0e7acc")
+
+oceny3 <- ggplot(df,aes(x=Dalc,y=G3,fill = Dalc))+
+  geom_boxplot()+
+  theme_dark()+
+  theme(legend.position = "none")+
+  scale_fill_manual(values = kolorki3)+
+  xlab('Spożycie alkoholu')+
+  ylab('Oceny')+
+  ggtitle('Ocena semestralna')
+  
+
+```
+
+```{r}
+grid.arrange(oceny1, oceny2, oceny3 ,ncol=3)
+```
+
+Bardzo wysokie spożycie alkoholu w ciągu tygodnia nie wydaje się sprzyjać uzyskaniu świetnej oceny końcowej.
+
+## 4.3 Czy uczniowie piją więcej w weekendy?
+
+#### ***Wykres: Spożycie alkoholu w weekend, a oceny***
+
+```{r}
+
+kolorki4 <- c("#d0bad9","#c795db","#bc6edb","#b146db","#990dd1")
+
+oceny4 <- ggplot(df,aes(x=Walc,y=G1,fill = Walc))+
+  geom_boxplot()+
+  theme_dark()+
+  theme(legend.position = "none")+
+  scale_fill_manual(values = kolorki4)+
+  xlab('Spożycie alkoholu')+
+  ylab('Oceny')+
+  ggtitle('Pierwsze półrocze')
+
+```
+
+```{r}
+
+kolorki5 <- c("#d9cdb6","#ccb27e","#cfa551","#d6a033","#fcab05")
+
+oceny5 <- ggplot(df,aes(x=Walc,y=G2,fill = Walc))+
+  geom_boxplot()+
+  theme_dark()+
+  theme(legend.position = "none")+
+  scale_fill_manual(values = kolorki5)+
+  xlab('Spożycie alkoholu')+
+  ylab('Oceny')+
+  ggtitle('Drugie półrocze')
+  
+```
+
+```{r}
+
+kolorki6 <- c("#b0d6cb","#91d9c3","#6bd6b5","#41d1a5","#0dde9e")
+
+oceny6 <- ggplot(df,aes(x=Walc,y=G3,fill = Walc))+
+  geom_boxplot()+
+  theme_dark()+
+  theme(legend.position = "none")+
+  scale_fill_manual(values = kolorki6)+
+  xlab('Spożycie alkoholu')+
+  ylab('Oceny')+
+  ggtitle('Ocena semestralna')
+
+```
+
+```{r}
+grid.arrange(oceny4, oceny5, oceny6,ncol=3)
+```
+
+Podobnie jak na wykresach spożycia alkoholu w dni robocze, im większe spożycie tym mierniejsze wyniki w nauce. Mediana średniej ocen jest wizualnie wyższa wśród uczniów, którzy mieli bardzo niski poziom dziennego spożycia alkoholu. Jednak mediana ocen uczniów ze średnim, wysokim i bardzo wysokim poziomem dziennego spożycia alkoholu nie wydaje się bardzo różna.
+
+## ***4.4 Spożycie alkoholu w dni robocze, a nieobecności***
+
+```{r}
+
+kolorki7 <- c("#fcc7c7","#f09595","#e86868","#d43535","#a30707")
+
+library(showtext)
+font_add_google("Roboto","Roboto")
+myFont1 <- "Roboto"
+
+oceny7 <- ggplot(df,aes(x=Dalc,y=absences,fill=Dalc))+
+  geom_violin()+
+  scale_fill_manual(values = kolorki7)+
+  theme_grey()+
+  theme(legend.position = 'none',text = element_text(family = myFont1,size = 14))+
+  ggtitle("Nieobecności w szkole a spożycie alkoholu w dni robocze")+
+  xlab('Spożycie alkoholu')+
+  ylab('Liczba nieobecności')
+```
+
+```{r}
+kolorki8 <- c("#fcc7c7","#f09595","#e86868","#d43535","#a30707")
+
+oceny8 <- ggplot(df, aes(x=Walc, y=absences, fill=Walc))+
+      geom_violin()+
+      scale_fill_manual(values = kolorki8)+
+      theme_grey()+
+      theme(legend.position="none",text = element_text(family = myFont1,size = 14))+
+      ggtitle("Nieobecności w szkole a spożycie alkoholu w weeknd")+
+      xlab("Spożycie alkoholu")+
+      ylab('Liczba nieobecności')
+
+```
+
+```{r}
+grid.arrange(oceny7, oceny8,ncol=2)
+```
+
+Na pierwszym wykresie można zauważyć, ciekawy kształt ma kategoria bardzo wysokiego spożycia alkoholu, która się rozszerza, podczas gdy inne mają tendencję spadkową. Możemy też zauważyć, że ma ładny kształt butelki.
+
+Mniej oczywista zależność między weekendowym spożywaniem alkoholu a nieobecnościami występuje na drugim wykresie.
+
+## ***4.5 Spożycie alkoholu, a wiek ucznia***
+
+```{r}
+ggplot(df, aes(x=age, fill=Dalc))+
+      geom_histogram(binwidth=1, colour="black")+
+      facet_grid(~Dalc)+
+      scale_fill_manual(values= kolorki1)+
+      theme_bw()+
+      theme(legend.position="none")+
+      ggtitle("Spożycie alkoholu w dni robocze, a wiek ucznia")+
+      xlab("Wiek")+
+      ylab("Wartość")
+```
+
+```{r}
+ggplot(df, aes(x=age, fill=Walc))+
+      geom_histogram(binwidth=1, colour="black")+
+      facet_grid(~Walc)+
+      scale_fill_manual(values= kolorki2)+
+      theme_bw()+
+      theme(legend.position="none")+
+      ggtitle("Spożycie alkoholu w weekend, a wiek ucznia")+
+      xlab("Wiek")+
+      ylab("Wartość")
+```
+
+Jest wielu uczniów w wieku 15 lat, którzy już piją. Wraz z wiekiem spożycie alkoholu się zmniejsza.
+
+# Podstawowe wykresy
+
+## Wykres płci od ilości osób
+
+```{r}
+
+table(df$sex)
+plec <-  ggplot(data=df,aes(x=sex,fill=sex))+
+  geom_bar()
+
+plec
+```
+
+Jak możemy łatwo zauważyć na powyższym wykresie, dziewczyn jest więcej niż chłopców.
+
+## Wykres kondycji zdrowotenj uczniów
+
+```{r}
+table(df$health)
+health <- ggplot(data=df,aes(x=health,fill=sex))+
+  geom_histogram(binwidth = 0.5,fill="lightgreen")
+health
+```
+
+Jak widzimy, większość uczniów jest w dobrej kondycji zdrowotnej.
+
+## Wykres spozycia alkoholu w zalezności od obszaru zamieszkania z podziałem na płeć
+
+```{r}
+area <- qplot(data = df, x = sex, fill = address)
+area
+```
+
+Uczniowie zamieszkujący obszary wiejskie mają większe skłonności do picia alkoholu. Dodatkowo z wykresu można wyczytać, że większą konsumpcje alkoholu stanowią kobiety.
+
+## Wykres wieku ucznuiów z podziałem na płeć
+
+```{r}
+
+var(df$G1)
+ages = ggplot(data=df,aes(x=age,fill=sex))+
+  geom_histogram(binwidth = 0.5)
+ages
+```
+
+Jak wyraźnie widzimy na wykresie, większość uczniów w wieku powyżej 18 lat to studenci płci męskiej, ponieważ nie ma studentek w wieku powyżej 20 lat.
+
+## Wykres wyników w nauce z podziałem na wiek uczniów
+
+```{r}
+
+G1 = ggplot(data=df,aes(x=age,y=G1,col=sex,shape=sex))+
+  geom_point()+
+  geom_smooth(method = "lm",se=F)+
+  facet_grid(~sex)
+
+G1
+
+```
+
+Widzimy, że wyniki dziewcząt poprawiają się wraz z wiekiem, jednak na powyższym wykresie można zauważyć spadek wyników chłopców.
+
+## Wykres uczniów, a niezaliczanie przedmiotów
+
+```{r}
+
+ggplot(aes(x = age), data = df)  +
+  geom_freqpoly(aes(color = failures),binwidth=1) + 
+  scale_x_continuous(limits=c(15,19), breaks = seq(15,19,1)) + 
+  coord_trans( y = 'sqrt')
+
+```
+
+Jak możemy zauważyć większość uczniów nigdy nie powtarzała klasy.
+
+## Wykres czynników wpływajacych na wybór szkoły przez uczniów.
+
+```{r}
+ggplot(aes(x=reason) , data = df) + 
+  geom_bar() + 
+  facet_wrap(~ school  )
+```
+
+Większość uczniów wybrała szkołę z odpowiednimi i odpowiednimi kursami przez nich oferowanymi oraz renomą, a także bliżej domu.
+
+## Wykres drogi do szkoły a nieobecności na zajęciach
+
+```{r}
+df$traveltime<- df$traveltime  %>%  factor(labels=c("mniej niż 15min","15 - 30 min","30min - 1 h",">1hr"))
+
+
+ggplot(aes(x = traveltime, y = absences ) , data = df) + 
+  geom_boxplot() + 
+  coord_cartesian(ylim=c(0,20)) +
+  scale_y_continuous(breaks=seq(0,20,4)) + 
+  coord_trans(y = 'sqrt') 
+
+```
+
+Z wykresu można odczytać, iż uczniowie którzy mają do przebycia najdłuższą drogę mają większa medinę. Większośc uczniów ma niedaleką odległość od szkoły, co sprzyja częstrzemu opuszczaniu zajęć.
+
+## Tabela niezaliczenia przedmiotów przez uczniów
+
+```{r}
+df$failures <- factor(df$failures,labels = c('Nigdy','Raz oblal','Dwa razy', 'Trzy razy'))
+
+table(df$age,df$failures)
+```
+
+# 5. Macierz korelacji
+
+```{python include=FALSE}
+
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+
+data = pd.read_csv("Maths.csv")
+
+```
+
+```{python echo=FALSE,results=FALSE}
+
+plt.figure(figsize=(15,15))
+sns.heatmap(data.corr(),annot=True,fmt=".2f",cbar=True)
+
+```
+
+Z powyższej mapy cieplnej możemy poznać wiele interesujących spostrzeżeń:
+
+-   Oceny z matematyki są skorelowane z ocenami z języka portugalskiego
+
+-   G1, G2 i G3 w obu przedmiotach są ze sobą silnie skorelowane
+
+-   Studentki mają tendencję do studiowania więcej i osiągania wyższych ocen
+
+-   Studenci płci męskiej mają zwykle wyższe tygodniowe i dzienne spożycie alkoholu (Dalc i Walc)
+
+-   Uczniowie, którzy nie zdali matematyki, zwykle nie radzą sobie również z portugalskim
+
+-   Studenci, którzy chcą zdobyć wyższe wykształcenie, zwykle mniej oblewają i uzyskują więcej ocen
+
+-   Uczniowie, którzy często opuszczali lekcje matematyki, często opuszczają również zajęcia z portugalskiego
+
+-   Studenci ze wsi podróżują dłużej niż studenci z miast
+
+-   Studenci, których ojciec ma wyższe wykształcenie, często mają też matkę z wyższym wykształceniem (i odwrotnie)
+
+-   Matki z wyższym wykształceniem rzadziej zostają w domu i częściej są nauczycielkami
+
+-   Uczniowie, których matka ma wyższe wykształcenie, rzadziej oblewają matematykę i portugalsk
+
+# 6. Budowa modelu
+
+### 6.1 Model pełny
+
+```{r}
+model_pelny1 <- lm(formula = G1~.,data = df)
+sp1 <- summary(model_pelny1)
+
+plot(model_pelny1)
+```
+
+```{r}
+model_pelny2 <- lm(formula = G2~.,data = df)
+sp2 <- summary(model_pelny2)
+
+plot(model_pelny2)
+```
+
+```{r}
+model_pelny3 <- lm(formula = G3~.,data = df)
+sp3 <- summary(model_pelny3)
+
+
+
+plot(model_pelny3)
+```
+
+```{r}
+library(sjmisc)
+library(sjPlot)
+library(sjlabelled)
+
+tab_model(model_pelny3,show.std = T,show.stat = T,CSS = list(css.summary='color:#0a485e;',css.firsttablecol='font-weight: bold;',css.depvarhead='color:#ba2790;',css.centeralign="text-align:left;"))
+
+
+sp3
+```
+
+```{r}
+
+model <- lm(formula = G3~absences+failures+G1+G2,data = df)
+summary(model)
+
+
+tab_model(model,show.std = T,show.stat = T,CSS = list(css.summary='color:#0a485e;',css.firsttablecol='font-weight: bold;',css.depvarhead='color:#ba2790;',css.centeralign="text-align:left;"))
+```
+
+## TESTY HETEROGENICZNOŚCI WARIANCJI
+
+### TEST BREUSHA-PAGANA
+
+Test sprawdza, czy zmienne objaśniające mogą dokładniej prognozować kwadraty residuów wyjściowegomodelu.
+
+```{r}
+#H0:wariancja jest jednorodna
+#H1:wariancja zależy od zmiennych objaśniających
+
+bptest(model)
+```
+
+Wniosek.
+
+Ponieważ p-wartość jest mniejsza od 0.05, odrzucamy hipotezę H0. Na podstawie przeprowadzonego testu Breucha-Pagana mamy podstawy do odrzucenia hipotezy o jednorodnościwariancji reszt w zbudowanym modelu.
+
+### TEST GOLDFELDA-QUANTA
+
+Test bada wariancję reszt na różnych podzbiorach. Polega on na wykonaniu podziału reszt na dwie grupy isprawdzeniu jednorodności wariancji w obu grupach.
+
+```{r}
+#H0:σ21=σ22
+#H1:σ21=σ2
+
+# σ2i- wariancja wi-tej grupie,i= 1,2
+
+gqtest(model)
+gqtest(model, order.by = ~fitted(model), data = df)
+
+
+```
+
+### TEST CARRISONA-MCCABE'S
+
+Test bada, czy częściowe wartości resztowej sumy kwadratów odchyleń (RSS) są zgodne z oczekiwaniami.
+
+```{r}
+#H0:σ21=σ22
+#H1:σ21=σ22
+#σ2i- wariancja wi-tej grupie,i= 1,2
+
+hmctest(model)
+hmctest(model,order.by = ~fitted(model),data=df)
+```
+
+## TESTY SERYJNEJ KORELACJI
+
+### TEST DURBINA-WATSONA
+
+```{r}
+#H0:brak autokorelacji
+#H1:występuje autokorelacja pierwszego rzędu
+
+dwtest(model)
+```
+
+Wniosek. Na podstawie przeprowadzonego testu Durbina-Watson odrzucamy hipotezę o braku autokorelacji reszt w zbudowanym modelu.
+
+### TEST BREUSHA-GORDFREYA
+
+Test pozwala na testowanie autokorelacji zarówno pierwszego jak i wyższych rzędów.
+
+```{r}
+#H0:brak autokorelacji do rzędu q
+#H1:występuje autokorelacja
+
+bgtest(model,order=3)
+```
+
+Wniosek. Na podstawie przeprowadzonego testu Breuscha-Godfreya odrzucamy hipotezę o braku autoko-relacji reszt w zbudowanym modelu.
+
+## ALGORYTMY KLASYFIKACYJNE - Decision Trees
+
+```{r}
+
+library(C50)
+
+set.seed(9850)
+g <- runif(nrow(df))
+
+stur <- df[order(g),]
+
+train <- stur[sample(nrow(stur),250),]
+
+```
+
+## Pierwszy model
+
+```{r}
+
+mod1 <- C5.0(as.factor(Walc)~ Dalc+
+               goout+
+               failures+
+               Pstatus+
+               higher+
+               Mjob+
+               activities+
+               studytime+
+               freetime+
+               famsize+
+               internet, data = train)
+
+summary(mod1)
+```
+
+```{r}
+
+#mod2 <- C5.0(as.factor(Walc) ~ 	Dalc + goout  , data = train)
+#mod2
+#plot(mod2)
+```
+
+```{r}
+
+
+table(df$health, df$Dalc)
+prop.table(table(df$health , df$Dalc))
+ggplot(aes(x  = health , y  =  Dalc ) , data = df) + 
+  geom_count()
+
+```
+
+```{r}
+chisq.test(df$Walc, df$goout)
+```
+
+P.value \< 0.05, więc możemy stwierdzić, że obie te zmienne ( Walc oraz goout) są zależne między sobą.
+
+```{r}
+
+library(rpart)
+library(rpart.plot)
+
+
+mod1<-rpart(as.factor(Walc) ~ 	Dalc +
+            goout + 
+            failures + 
+            Pstatus +
+            higher +
+            Mjob+
+            activities+
+            studytime+
+            freetime+
+            famsize+
+            internet
+          , data = train, method='class')
+
+summary(mod1)
+```
+
+```{r}
+fancyRpartPlot(mod1)
+```
+
+```{r}
+
+mod2<-rpart::rpart(Walc ~ . , data = train , method = 'class')
+mod2
+
+summary(mod2)
+
+
+
+```
+
+```{r}
+
+#predicting values for  
+p1<-predict(mod2 , newdata = stur[250:350,] , type='class' )
+p1
+```
+
+### Sprawdzenie dokładności modelu
+
+Porównanie docelowych (Y) wartości zestawu testowego i przewidywanych wartości Y (obliczone przez model).
+
+```{r}
+
+table(actual=train[100:200,28] , predicted=p1)
+```
+
+### PRZEWIDYWANIE Oceny uczniów z matematyki
+
+```{r}
+
+table(df$G1)
+summary(df$G1)
+
+ggplot(aes(x = G1), data = df) + 
+  geom_histogram(aes(fill=I('green'),color=I('black')))  + 
+  facet_wrap(~sex)
+
+```
+
+```{r}
+
+by(df$G3, df$sex,summary)
+
+
+
+```
+
+Nieco normalnie rozłożony (wartości średnie i mediany takie same), obserwujemy, że studenci płci męskiej uzyskali nieco lepsze wyniki na pierwszych egzaminach na podstawie średnich wyników, wartości mediany i kwantyli (Q3 i Q1).
+
+```{r}
+
+ggplot(aes(x = sex , y = G1), data = df) + 
+  geom_boxplot() + 
+  scale_y_continuous(breaks=seq(0,20,2))
+
+#Second exams
+ggplot(aes(x = sex , y = G2), data = df) + 
+  geom_boxplot() + 
+  scale_y_continuous(breaks=seq(0,20,2))
+
+
+#Final exams
+ggplot(aes(x = sex , y = G3), data = df) + 
+  geom_boxplot() + 
+  scale_y_continuous(breaks=seq(0,20,2))
+```
+
+### Test niezależności atrybutów
+
+```{r}
+
+chisq.test(df$freetime,df$goout)
+```
+
+Oba są od siebie zależne, wysoka wartość $X^2$ i niska wartość $p value$, odrzucamy H0, więc możemy stwierdzić, że im więcej wolnego czasu, tym więcej uczniów będzie wychodzić ze znajomymi.
+
+```{r}
+
+require(rpart)
+require(rpart.plot)
+
+model1 <- rpart(G3~.,data = stur[1:150,])
+summary(model1)
+
+
+fancyRpartPlot(model1)
+```
+
+```{r}
+
+summary(residuals(model1))
+
+
+```
+
+Średnia różnica między rzeczywistą wartością docelową a obliczoną wartością wyjściową (G3) wynosi 0, tj. średnia (y(obs)-y(cal))=0.
+
+### Wartosci przewidywane na zbiorze testowym
+
+```{r}
+
+#p1 <- predict(model1,newdata = stur[200:350,])
+
+```
+
+```{r}
+
+accuracy<-cbind(actual=stur[200:350,33],predicted=p1)
+acc1<-as.data.frame(accuracy)
+
+acc1
+```
+
+\
+Prawie obie rzeczywiste wartości G3 mają ten sam rozkład (średnia, mediana), przewidywane wartości również mają w pewnym stopniu ten sam rozkład (średnia, mediana itp.).
+
+```{r}
+
+summary(acc1$predicted)
+summary(acc1$actual)
+
+
+ggplot(aes(x=predicted,y=actual ),data = acc1) +
+  geom_point()
+
+```
+
+```{r}
+
+#robienie nowej kolumny
+acc1<-mutate(acc1,residuals = actual - predicted)
+#wystandaryzowane reszty – wartości reszt podzielone przez sd reszt
+acc1<-mutate(acc1,Stdresid = residuals/sd(residuals))
+
+ggplot(aes(x = residuals), data =acc1)  + 
+  geom_histogram(color='black',fill='yellow',binwidth=.5)
+
+```
+
+Reszty mają rozkład nieco normalny, lekko,bardzo skośny.
+
+```{r}
+
+summary(acc1$residuals)
+#95%
+quantile(acc1$residuals,c(0.95))
+
+ggplot(aes(x = Stdresid),data =acc1) + 
+  geom_histogram()
+
+summary(acc1$Stdresid)
+
+```
+
+## Drugi model
+
+```{r}
+model2<-rpart(G3 ~ goout + absences + studytime + Dalc + Walc + famsup , data = stur[200:350,])
+
+summary(model2)
+
+fancyRpartPlot(model2)
+
+summary(residuals(model2))
+
+
+
+
+
+
+```
+
+```{r}
+predict(model2,newdata = data.frame(goout=1,absences=10,Walc=5,Dalc=4,famsup='no',studytime=4))
+```
+
+Korzystanie z pakietu C50 do określania oceny końcowej ucznia i sprawdzanie jej dokładności za pomocą Rpart.
+
+```{r}
+model3<-C50::C5.0(as.factor(Walc) ~. , data = stur[1:150,])
+summary(model3)
+myTree2 <- C50:::as.party.C5.0(model3)
+plot(model3)
+```
+
+```{r}
+
+p2 <- predict(model3,newdata = stur[200:350,])
+
+acc2 <- as.data.frame(cbind(Actual = stur[200:350,25:28],Predicted.Walc=p2))
+
+acc2
+```
+
+```{r}
+
+
+filter(acc2, Predicted.Walc==Actual.Walc)
+#62 pop
+filter(acc2, Predicted.Walc!=Actual.Walc)
+#89 złe
+
+```
+
+```{r}
+
+ggplot(aes(x = Predicted.Walc),data = acc2) + 
+  geom_bar()
+
+ggplot(aes(x = Actual.Walc),data = acc2) + 
+  geom_bar()
+```
+
+```{r}
+
+t1<-table(actual=stur[200:350,28],predicted= p2)
+#62 pop
+dim(t1)
+
+ggplot(aes(x=Actual.Walc, y=Predicted.Walc), data = acc2) + 
+  geom_jitter() + 
+
+  geom_smooth()
+
+```
+
+#### 
+
+### Przewidywanie niepowodzeń uczniów korzystając z Rpart
+
+```{r}
+#regression tree
+model4<-rpart::rpart(failures ~ .  ,data = stur[1:250,],method='anova')
+model4
+summary(model4)
+fancyRpartPlot(model4)
+rpart.plot::rpart.plot(model4)
+
+```
+
+```{r}
+
+rpart::printcp(model4)
+
+
+```
+
+1.  xerror to błąd walidacji krzyżowej
+
+2.  xerror najniższy dla CP = 0,01
+
+3.  CP=parametr przycinania (inaczej parametr złożoności kosztów)
+
+4.  przycinanie drzewa na podstawie wartości CP z dzierżawą Błąd sprawdzania krzyżowego
+
+    ```{r}
+
+    pruned_model4<-rpart::prune(model4,cp=0.0167)
+
+    rpart.plot::rpart.plot(pruned_model4)
+    summary(pruned_model4)
+
+
+    ```
+
+    ```{r}
+
+    summary(residuals(pruned_model4))
+
+    hist(resid(pruned_model4)) 
+    ```
+
+    \
+    Reszty mają nieco normalny rozkład.
+
+    ### Predykcje
+
+    ```{r}
+
+    pruned.predict <- predict(pruned_model4,newdata = stur[251:351,])
+
+    acc3 <- as.data.frame(cbind(actual=stur[251:351,15],predicted=pruned.predict))
+
+    summary(acc3$actual)
+    summary(acc3$predicted)
+
+    ```
+
+# WNIOSKI
+
+Na podstawie wykonanej analizy odkryliśmy, że **istnieje korelacja między spożywaniem alkoholu przez uczniów a ich wynikami w nauce**.
+
+Możemy stwierdzić, że uczniowie, którzy piją bardzo mało w ciągu tygodnia, osiągają lepsze wyniki niż uczniowie o innym poziomie picia. Jednak ze względu na nakładanie się słupków błędów nie mamy istotnych dowodów, aby stwierdzić jakąkolwiek różnicę między innymi grupami. Co więcej, wnioskujemy, że studenci, którzy pragną zdobyć wyższe wykształcenie, zwykle piją mniej w weekendy niż studenci, którzy tego nie robią. Odkryliśmy również, że więcej uczniów odpowiada na grupy pijące bardzo wysoko i wysoko w weekendy niż w dni powszednie. Jednak w przypadku sytuacji rodzinnej nie mieliśmy istotnych dowodów wskazujących na związek między spożywaniem alkoholu przez uczniów a statusem życiowym ich rodziców.
+
+Ogólnie rzecz biorąc, znaleźliśmy pewne sprzeczności między naszym badaniem a hipotezami, które zakładaliśmy na poczatku naszej analizy. Głównym powodem może być [mała liczebność próby]{.underline}. Dlatego możemy nie być w stanie uogólnić naszego odkrycia na całą populację portugalską. Ponadto wiele zmiennych to zmienne kategoryczne, które ograniczają nas do badania liniowej lub nieliniowej zależności między zmiennymi. Ponieważ dane zostały zgłoszone samodzielnie, ludzie mogą nie odpowiadać na pytania zgodnie z prawdą. Wreszcie, polityka i kultura w Portugalii są inne niż w innych krajach. Na przykład w Portugalii minimalny wiek do picia to 16 lat.
+
+W przyszłych badaniach dotyczących związku między spożyciem alkoholu przez uczniów szkół średnich a ich sytuacją rodzinną i wynikami w nauce chcemy mieć więcej obserwacji, a zamiast danych kategorycznych chcemy więcej danych liczbowych. Jak powiedzieliśmy powyżej, posiadanie większej liczby zmiennych liczbowych pozwoli nam przeanalizować trend wyników w nauce uczniów oraz ich związek ze spożyciem alkoholu przez uczniów. Udoskonali również nasze badania, aby zebrać dane o tym, ile alkoholu piją rodzice uczniów, a także zmienną fikcyjną pytającą, czy pijesz z rodzicami. Rodzinne pochodzenie alkoholowe z pewnością wpłynie na stosunek uczniów do alkoholu i ukształtuje ich zachowania związane z kupowaniem alkoholu, ponieważ chcemy dokładniej zbadać, w jaki sposób rodzina wpływa na spożycie alkoholu przez uczniów.
+
+Nasza praca może być przydatna dla rodzin i szkół, ponieważ mogą one wykorzystać nasze wyniki jako wytyczne, aby zapobiegać piciu nastolatków. Bazując na naszych wynikach, mogą zachęcać nastolatków do zdobywania wyższego wykształcenia i czynić z tego wewnętrzną motywację dzieci do mniejszego picia. Również sami studenci powinni być świadomi wpływu spożywania alkoholu na wyniki w nauce. Jeśli są tego świadomi, może być mniej prawdopodobne, że staną się nieletnimi pijącymi. Niektóre inne grupy odbiorców, które mogą być zainteresowane naszymi badaniami, to departament edukacji w rządzie i być może niektóre instytucje edukacyjne. Wynik może pomóc w ustaleniu potencjalnego powodu picia alkoholu przez nieletnich i w próbie opracowania polityki zapobiegającej temu zjawisku.
